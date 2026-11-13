@@ -5,6 +5,8 @@ description = "Agentic time-series analysis on SKAB using Ollama"
 requires-python = ">=3.10"
 dependencies = [
     "ollama",
+    "langgraph",
+    "langchain-ollama",
     "pandas",
     "numpy",
     "scikit-learn",
