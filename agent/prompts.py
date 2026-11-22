@@ -37,9 +37,11 @@ Investigation workflow:
    - Whether the candidate could be ordinary variation or slow drift.
 
    Large absolute shifts are useful evidence, but are not proof.
-   Volume Flow RateRMS changes can be informative for water-circulation
-   faults. Temperature or Thermocouple changes alone may indicate slow
-   drift, but do not automatically dismiss them.
+   Shifts are reported in noise units, not raw sensor units.
+   Temperature and Thermocouple drift slowly through every file and
+   change as much in normal stretches as in faults, so never cite them
+   as evidence of an anomaly (extract_window_features lists them under
+   slow_drift_not_evidence).
 
    Optionally call detect_changepoints on one or two sensors with
    the strongest evidence if more precise boundaries would help.

@@ -15,6 +15,11 @@ def _sensor(sensor: str) -> pd.Series:
     return X[sensor].astype(float)
 
 
+def _sig(x: float, digits: int = 4) -> float:
+    """Round to significant digits (sensors range from 0.03 to 250, so fixed decimals don't fit)."""
+    return float(f"{float(x):.{digits}g}")
+
+
 def _timestamp_info(index: pd.Index) -> dict:
     result = {
         "index_type": type(index).__name__,
@@ -63,17 +68,20 @@ def describe_series(sensor: str = "") -> dict:
             f"Unknown sensor '{sensor}'. Available: {list(X.columns)}"
         )
 
+    idx_info = _timestamp_info(X.index)
     out = {
         "file": ctx.series.file_id,
-        "n_observations": len(X),
-        "n_sensors": len(X.columns),
+        "n": len(X),
         "start": str(X.index[0]),
         "end": str(X.index[-1]),
-        "time_info": _timestamp_info(X.index),
-        "sensors": {}
+        "sampling": idx_info.get("sampling_interval"),
     }
+    if idx_info["duplicate_timestamps"] or not idx_info["monotonic"]:
+        out["index_problems"] = {"duplicates": idx_info["duplicate_timestamps"],
+                                 "monotonic": idx_info["monotonic"]}
 
     columns = [sensor] if sensor else list(X.columns)
+    sensors, flags = {}, {}
 
     for col in columns:
         s = X[col].astype(float)
@@ -81,38 +89,40 @@ def describe_series(sensor: str = "") -> dict:
         n = len(valid)
 
         if n == 0:
-            out["sensors"][col] = {
-                "valid_observations": 0,
-                "missing": len(s),
-                "error": "No valid observations"
-            }
+            flags[col] = ["no valid observations"]
             continue
 
-        # Trend based only on valid observations
-        slope = None
-        if n >= 2 and valid.nunique() > 1:
+        std = float(valid.std())
+        q25, med, q75 = (float(valid.quantile(q)) for q in (0.25, 0.5, 0.75))
+        # Compact core: where it sits, how much it varies, how far the extremes reach.
+        sensors[col] = {"med": _sig(med), "std": _sig(std), "iqr": _sig(q75 - q25),
+                        "min": _sig(valid.min()), "max": _sig(valid.max())}
+
+        # Flags: only things that are abnormal enough to change the analysis.
+        f = []
+        if valid.nunique() == 1:
+            f.append("constant")
+        elif valid.nunique() < 20:
+            f.append(f"only {valid.nunique()} distinct values (quantised)")
+        if s.isna().any():
+            f.append(f"{s.isna().mean():.0%} missing")
+        if (valid == 0).mean() > 0.5:
+            f.append("mostly zero")
+        if std > 0 and n >= 2:
             x = np.arange(len(s))[s.notna().values]
-            slope = float(np.polyfit(x, valid.values, 1)[0])
+            drift = float(np.polyfit(x, valid.values, 1)[0]) * len(s) / std  # total fitted change, in std units
+            if abs(drift) >= 1:
+                f.append(f"drifts {drift:+.1f} std over the file")
+        if f:
+            flags[col] = f
 
-        out["sensors"][col] = {
-            "mean": round(float(valid.mean()), 4),
-            "std": round(float(valid.std()), 4),
-            "min": round(float(valid.min()), 4),
-            "max": round(float(valid.max()), 4),
-            "median": round(float(valid.median()), 4),
-            "q25": round(float(valid.quantile(0.25)), 4),
-            "q75": round(float(valid.quantile(0.75)), 4),
-            "missing": int(s.isna().sum()),
-            "missing_fraction": round(float(s.isna().mean()), 4),
-            "valid_observations": n,
-            "n_unique": int(valid.nunique()),
-            "is_constant": bool(valid.nunique() == 1),
-            "zero_fraction": round(float((valid == 0).mean()), 4),
-            "trend_slope_per_observation": (
-                round(slope, 6) if slope is not None else None
-            )
-        }
-
+    out["sensors"] = sensors
+    if flags:
+        out["flags"] = flags
+    if sensor and sensor in sensors:  # single-sensor request: add the detail the overview leaves out
+        v = X[sensor].dropna().astype(float)
+        sensors[sensor].update({"mean": _sig(v.mean()), "q25": _sig(v.quantile(0.25)),
+                                "q75": _sig(v.quantile(0.75)), "n_unique": int(v.nunique())})
     return out
 
 

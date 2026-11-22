@@ -8,13 +8,13 @@ from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
-from . import data, tools
+from . import data, mcp_client, tools
 from .config import OLLAMA_HOST, OLLAMA_MODEL, OLLAMA_THINK
 from .db import store
 from .prompts import system_prompt
 
 
-MAX_RESULT_CHARS = 2048  # keep tool output small for small models
+MAX_RESULT_CHARS = 4096  # keep tool output small for small models
 MAX_CALLS_PER_TOOL = 3   # models that loop on one tool get cut off here
 
 
@@ -123,6 +123,7 @@ def run(file_id: str, model: str = OLLAMA_MODEL, max_steps: int = 15, with_memor
     run_id = store.start_run(con, file_id, model, with_memory)
     tools.ctx.series, tools.ctx.con, tools.ctx.run_id, tools.ctx.with_memory = series, con, run_id, with_memory
 
+    mcp_client.connect()  # detectors live on the MCP server: register them before binding tools
     graph = build_graph(model, max_steps)
     state: AgentState = {
         "messages": [SystemMessage(system_prompt(with_memory)),

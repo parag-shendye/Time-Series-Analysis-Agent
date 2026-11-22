@@ -21,6 +21,10 @@ def detect_changepoints(sensor: str, n_changepoints: int = 3) -> dict:
 def extract_window_features(start: str, end: str) -> dict:
     """Compare sensor medians inside a candidate window with the rest of the file.
 
+    `shift_noise_units` is the median difference divided by the sensor's noise (not raw units). Temperature
+    and Thermocouple drift slowly in every file, so they are reported under slow_drift_not_evidence and
+    must not be used as evidence for or against an anomaly.
+
     Args:
         start: Window start timestamp.
         end: Window end timestamp.

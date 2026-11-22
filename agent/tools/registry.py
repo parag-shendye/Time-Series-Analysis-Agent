@@ -19,6 +19,7 @@ class Context:
 
 ctx = Context()
 TOOLS: dict[str, Callable] = {}
+REMOTE: dict[str, tuple[dict, Callable]] = {}  # tools served over MCP: name -> (model schema, caller)
 
 
 def tool(fn: Callable) -> Callable:
@@ -44,16 +45,24 @@ def _schema(fn: Callable) -> dict:
         "parameters": {"type": "object", "properties": props, "required": required}}}
 
 
+def register_remote(name: str, schema: dict, caller: Callable) -> None:
+    """Register a tool implemented elsewhere (an MCP server). `schema` is the OpenAI-style tool schema."""
+    REMOTE[name] = (schema, caller)
+
+
 def schemas(names: list[str] | None = None) -> list[dict]:
-    return [_schema(f) for n, f in TOOLS.items() if names is None or n in names]
+    local = [_schema(f) for n, f in TOOLS.items() if names is None or n in names]
+    remote = [sch for n, (sch, _) in REMOTE.items() if names is None or n in names]
+    return local + remote
 
 
 def call(name: str, args: dict | None) -> str:
     """Run a tool; always return a string (errors included) so the model can recover."""
-    if name not in TOOLS:
-        return f"error: unknown tool '{name}'. Available: {', '.join(TOOLS)}"
+    fn = TOOLS.get(name) or (REMOTE[name][1] if name in REMOTE else None)
+    if fn is None:
+        return f"error: unknown tool '{name}'. Available: {', '.join([*TOOLS, *REMOTE])}"
     try:
-        out = TOOLS[name](**(args or {}))
+        out = fn(**(args or {}))
     except TypeError as e:
         return f"error: bad arguments for {name}: {e}"
     except Exception as e:
